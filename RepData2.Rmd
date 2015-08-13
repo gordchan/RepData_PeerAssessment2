@@ -1,8 +1,104 @@
 ---
-title: "Effect of Severe weather events on population health and economy"
+title: "Effect of severe weather events on population health and economy"
 author: "Gordon CHAN"
 date: "10/08/2015"
 output: html_document
 ---
 
+# Synopsis
 
+This paper aim to find the type of severe weather event that had caused the greatest damage to the population health and to the economy. The effect to population health being defined as the number of fatalities and injuries caused; While the effect to the economy being defined as damages to properties and crops caused.
+
+# Data Processing
+
+The packages *dplyr* and *lubridate* are used to process the data.
+
+```{r libraries}
+
+  library(dplyr)
+  library(lubridate)
+
+```
+
+Since the dataset is very large, only the relevant columns are loaded.
+
+```{r dataset, cache=TRUE}
+    rc = c("BGN_DATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+    
+    storm <- read.csv("repdata-data-StormData.csv.bz2", stringsAsFactors = FALSE)[,rc]
+
+    storm <- tbl_df(storm)
+```
+
+A dataframe is generated concerning the effect to population health and economic damages respectively. The year for each entry is also generated.
+
+```{r subset, cache=TRUE}
+health <- select(storm, EVTYPE, FATALITIES, INJURIES)
+econ <- select(storm, EVTYPE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+
+year <- storm %>% select(YEAR = BGN_DATE)
+  year <- as.data.frame(year(mdy_hms(year$YEAR)))
+  names(year)[1] <- "YEAR"
+
+  
+  health <- bind_cols(year, health)
+  econ <- bind_cols(year, econ)
+  
+```
+
+Since data quality for the earlier years of the dataset is poorer. The entries betwee 1995 and 2011 are filtered.
+
+```{r period}
+  period <- c(1995:2011)
+  
+  health <- health %>% filter(YEAR %in% period)
+
+  econ <- econ %>% filter(YEAR %in% period)
+```
+
+The health dataset is further subsetted to include only entries that has caused fatalaties or injuries. Likewise, the econ dataset is subsetted to include only entries that has caused property or crop damages.
+
+```{r null}
+health <- health %>% filter(!(FATALITIES==0 & INJURIES==0))
+
+econ <- econ %>% filter(!(PROPDMG==0 & CROPDMG==0))
+
+```
+
+For the econ dataset, the magnitute of damages are cleaned and the actual amount is reformatted by a custom function.
+
+```{r function}
+
+mag <- function(x){
+  
+  ifelse (x=="" | x=="-" | x=="+", 0, +
+            ifelse(x=="H" | x=="h", 2, +
+                      ifelse(x=="K" | x=="k", 3, +
+                               ifelse(x=="M" | x=="m", 6, +
+                                        ifelse(x=="B" | x=="b", 9, +
+                                                 ifelse(x %in% "1":"9", as.integer(x), 0))))))
+  
+}
+
+```
+
+The custom function *mag* will return the magnitute as the power of 10. The value of damages can then be multiplied by the magnitute to give the true value.
+
+```{r magnitute}
+
+econ <- econ %>%
+  mutate(PMAG = mag(PROPDMGEXP)) %>%
+    mutate(CMAG = mag(CROPDMGEXP)) %>%
+      mutate(PROP = PROPDMG*10^PMAG) %>%
+        mutate(CROP = CROPDMG*10^CMAG)
+
+```
+
+The event type need to be tidied up to reduce the number of factors involved. From *the Storm Data Event Table*, section 2.1.1 of the *STORM DATA PREPARATION* documentation, there are 48 types of storm data events.
+
+```{r}
+
+```
+
+
+# Results 
