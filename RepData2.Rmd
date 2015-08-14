@@ -1,23 +1,26 @@
 ---
 title: "Effect of severe weather events on population health and economy"
 author: "Gordon CHAN"
-date: "10/08/2015"
+date: "14/08/2015"
 output: html_document
 ---
 
 # Synopsis
 
-This paper aim to find the type of severe weather event that had caused the greatest damage to the population health and to the economy. The effect to population health being defined as the number of fatalities and injuries caused; While the effect to the economy being defined as damages to properties and crops caused.
+This paper aim to find the type of severe weather event that had caused the greatest damage to the population health and to the economy. The effect to population health being defined as the number of fatalities and injuries caused; While the effect to the economy being defined as damages to properties and crops caused. It was found that **tornado** has caused the most damage to population health, while **floods** has caused the most damage to the economy.
 
 # Data Processing
 
-The packages *dplyr* and *lubridate* are used to process the data.
+The packages *dplyr*, *lubridate* and *reshape2* are used to process the data, while *knitr*, *ggplot2* and *gridExtra*  are used to facilitate data presentation.
 
-```{r libraries}
-
+```{r libraries, message=FALSE}
   library(dplyr)
   library(lubridate)
-
+  library(reshape2)
+  
+  library(knitr)
+  library(ggplot2)
+    library(gridExtra)
 ```
 
 Since the dataset is very large, only the relevant columns are loaded.
@@ -28,6 +31,8 @@ Since the dataset is very large, only the relevant columns are loaded.
     storm <- read.csv("repdata-data-StormData.csv.bz2", stringsAsFactors = FALSE)[,rc]
 
     storm <- tbl_df(storm)
+    
+    storm
 ```
 
 A dataframe is generated concerning the effect to population health and economic damages respectively. The year for each entry is also generated.
@@ -44,11 +49,13 @@ year <- storm %>% select(YEAR = BGN_DATE)
   health <- bind_cols(year, health)
   econ <- bind_cols(year, econ)
   
+  health
+  econ
 ```
 
-Since data quality for the earlier years of the dataset is poorer. The entries betwee 1995 and 2011 are filtered.
+Since data quality for the earlier years of the dataset is poorer. The entries between 1995 and 2011 are filtered.
 
-```{r period}
+```{r period, cache=TRUE}
   period <- c(1995:2011)
   
   health <- health %>% filter(YEAR %in% period)
@@ -56,19 +63,17 @@ Since data quality for the earlier years of the dataset is poorer. The entries b
   econ <- econ %>% filter(YEAR %in% period)
 ```
 
-The health dataset is further subsetted to include only entries that has caused fatalaties or injuries. Likewise, the econ dataset is subsetted to include only entries that has caused property or crop damages.
+The health dataset is further sub-setted to include only entries that has caused fatalities or injuries. Likewise, the econ dataset is sub-setted to include only entries that has caused property or crop damages.
 
-```{r null}
+```{r null, cache=TRUE}
 health <- health %>% filter(!(FATALITIES==0 & INJURIES==0))
 
 econ <- econ %>% filter(!(PROPDMG==0 & CROPDMG==0))
-
 ```
 
-For the econ dataset, the magnitute of damages are cleaned and the actual amount is reformatted by a custom function.
+For the econ dataset, the magnitude of damages are cleaned and the actual amount is reformatted by a custom function.
 
-```{r function}
-
+```{r function, cache=TRUE}
 mag <- function(x){
   
   ifelse (x=="" | x=="-" | x=="+", 0, +
@@ -77,28 +82,273 @@ mag <- function(x){
                                ifelse(x=="M" | x=="m", 6, +
                                         ifelse(x=="B" | x=="b", 9, +
                                                  ifelse(x %in% "1":"9", as.integer(x), 0))))))
+}
+```
+
+The custom function *mag* will return the magnitude as the power of 10. The value of damages can then be multiplied by the magnitude to give the true value.
+
+```{r magnitute, cache=TRUE}
+econ <- econ %>%
+  mutate(PMAG = mag(PROPDMGEXP)) %>%
+    mutate(CMAG = mag(CROPDMGEXP)) %>%
+      mutate(PROP = PROPDMG*10^(PMAG)) %>%
+        mutate(CROP = CROPDMG*10^(CMAG))
+
+econ
+```
+
+## Handling messy event types
+
+The event type need to be tidied up to reduce the number of factors involved. From *the Storm Data Event Table*, section 2.1.1 of the *STORM DATA PREPARATION* documentation, there are 48 types of storm data events.
+
+First the table is copied from the documentation into a csv file, and then loaded. The regx used to search for respective events are also included. Each regx will only match single events, but will not match entries that are made up of multiple events.
+
+```{r dcoumentation, cache=TRUE, fig.width=10, fig.height=20}
+sdet <- read.csv("EVTYPE.csv", header = TRUE, stringsAsFactors = FALSE)
+
+sdet_table <- sdet
+
+  sdet_table$regx <- sapply(lapply(sdet_table$regx, strwrap, width=60), paste, collapse="\n")
+
+    grid.table(sdet_table, cols = colnames(sdet_table))
+```
+
+The leading spaces, if present, in the EVTYPE variable of the datasets are removed.
+
+```{r leadin_spaces, cache=TRUE}
+      health$EVTYPE <- sapply(health$EVTYPE, function(x){gsub("(^ *)", "", x)})
+      econ$EVTYPE <- sapply(econ$EVTYPE, function(x){gsub("(^ *)", "", x)})
+```
+
+
+Then a list of distinct pre-processed event types is generated. This table can then be used to check whether all of the entries have a standard event type mapped.
+
+```{r evt_pre-list, cache=TRUE}
+evt_h <- health %>% distinct(EVTYPE) %>% select(EVTYPE)
+evt_e <- econ %>% distinct(EVTYPE) %>% select(EVTYPE)
+
+  evt <- rbind(evt_h, evt_e)
+    evt <- evt %>% distinct(EVTYPE) %>% arrange(EVTYPE)
+    
+      evt
+```
+
+Each entry for the health and econ datasets are assigned a standard event name in the first round of matching.
+
+```{r StdName_matching, cache=TRUE}
+health["StdName"] <- ""
+
+for (i in 1:nrow(sdet)){
   
+  x <- sdet[i,2]
+  
+  y <- grepl(x, health$EVTYPE, ignore.case = TRUE)
+  
+    health$StdName[y] <- sdet[i,1]
+  
+}
+
+econ["StdName"] <- ""
+
+for (i in 1:nrow(sdet)){
+  
+  x <- sdet[i,2]
+  
+  y <- grepl(x, econ$EVTYPE, ignore.case = TRUE)
+  
+  econ$StdName[y] <- sdet[i,1]
+}
+```
+
+After which, the remaining unmatched entries are inspected.
+
+```{r remainder, cache=TRUE}
+chk_h <- health %>% filter(StdName=="")
+
+chk_e <- econ %>% filter(StdName=="")
+
+  chk <- bind_rows(chk_h['EVTYPE'], chk_e['EVTYPE']) %>% distinct(EVTYPE) %>% arrange(EVTYPE)
+
+chk_summary = matrix(c(nrow(health), nrow(chk_h), nrow(econ), nrow(chk_e)), nrow=2, ncol=2)
+
+  dimnames(chk_summary) = list(c("Total", "Event Name Unmatched"), c("Health dataset", "Econ dataset"))
+  
+  kable(chk_summary)
+```
+
+## Locating entries of which the sole event cause cannot be determined
+
+Many of the entries cannot be matched because they were contributed by multiple events. For these entries, a new event type (*Mixed*) would be assigned.
+
+```{r mixed, cache=TRUE}
+    regx <- "( and |[[:punct:]])"
+  
+## health dataset
+
+for (i in 1:nrow(health)){
+  if (health$StdName[i]=="" & grepl(regx, health$EVTYPE[i], ignore.case = TRUE)){
+    health$StdName[i]<-"Mixed"
+  }
+}
+  
+## econ dataset
+
+for (i in 1:nrow(econ)){
+  if (econ$StdName[i]=="" & grepl(regx, econ$EVTYPE[i], ignore.case = TRUE)){
+    econ$StdName[i]<-"Mixed"
+  }
+}
+```
+
+The remaining unmatched entries are again inspected.
+
+```{r remainder_2, cache=TRUE}
+chk_h <- health %>% filter(StdName=="")
+
+chk_e <- econ %>% filter(StdName=="")
+
+  chk <- bind_rows(chk_h['EVTYPE'], chk_e['EVTYPE']) %>% distinct(EVTYPE) %>% arrange(EVTYPE)
+
+chk_summary = matrix(c(nrow(health), nrow(chk_h), nrow(econ), nrow(chk_e)), nrow=2, ncol=2)
+
+  dimnames(chk_summary) = list(c("Total", "Event Name Unmatched"), c("Health dataset", "Econ dataset"))
+  
+  kable(chk_summary)
+```
+
+## Marking unrecognised events
+
+The remaining events which are not recognised are marked as *Others*.
+
+```{r Others, cache=TRUE}
+
+regx <- "(^other$)"
+
+## health dataset
+  
+for (i in 1:nrow(health)){
+  if (grepl(regx, health$StdName[i], ignore.case = TRUE)){
+    health$StdName[i]<-"Other"
+  } else if (health$StdName[i]==""){
+    health$StdName[i]<-"Other"
+  }
+}
+  
+## econ dataset
+
+for (i in 1:nrow(econ)){
+  if (grepl(regx, econ$StdName[i], ignore.case = TRUE)){
+    econ$StdName[i]<-"Other"
+  } else if (econ$StdName[i]==""){
+    econ$StdName[i]<-"Other"
+  }
 }
 
 ```
 
-The custom function *mag* will return the magnitute as the power of 10. The value of damages can then be multiplied by the magnitute to give the true value.
+The remaining unmatched entries are again inspected.
 
-```{r magnitute}
+```{r remainder_3, cache=TRUE}
+chk_h <- health %>% filter(StdName=="")
 
-econ <- econ %>%
-  mutate(PMAG = mag(PROPDMGEXP)) %>%
-    mutate(CMAG = mag(CROPDMGEXP)) %>%
-      mutate(PROP = PROPDMG*10^PMAG) %>%
-        mutate(CROP = CROPDMG*10^CMAG)
+chk_e <- econ %>% filter(StdName=="")
+
+  chk <- bind_rows(chk_h['EVTYPE'], chk_e['EVTYPE']) %>% distinct(EVTYPE) %>% arrange(EVTYPE)
+
+chk_summary = matrix(c(nrow(health), nrow(chk_h), nrow(econ), nrow(chk_e)), nrow=2, ncol=2)
+
+  dimnames(chk_summary) = list(c("Total", "Event Name Unmatched"), c("Health dataset", "Econ dataset"))
+  
+  kable(chk_summary)
+```
+
+As the result has showed, all entries has been matched with a standardised storm event name, and can be further analysed.
+
+```{r Tidy, cache=TRUE}
+health <- health %>% select(StdName, FATALITIES, INJURIES)
+
+econ <- econ %>% select(StdName, PROP, CROP)
+```
+
+
+# Results
+
+The cleaned dataset is then melted into a narrow tidy dataset, to prepare for graph plotting.
+
+```{r Aggregate, cache=TRUE}
+health_a <- group_by(health, StdName) %>% summarise(mean(FATALITIES), mean(INJURIES))
+  names(health_a) <- c("Event", "Fatalities", "Injuries")
+    health_a <- melt(health_a, id.var="Event")
+        names(health_a) <- c("Event", "Mean", "Number")
+
+health_s <- group_by(health, StdName) %>% summarise(sum(FATALITIES), sum(INJURIES))
+  names(health_s) <- c("Event", "Fatalities", "Injuries")
+    health_s <- melt(health_s, id.var="Event")
+        names(health_s) <- c("Event", "Sum", "Number")
+        
+econ_a <- group_by(econ, StdName) %>% summarise(mean(PROP), mean(CROP))
+  names(econ_a) <- c("Event", "Property Damages", "Crop Damages")
+    econ_a <- melt(econ_a, id.var="Event")
+        names(econ_a) <- c("Event", "Mean", "Dollar")
+
+econ_s <- group_by(econ, StdName) %>% summarise(sum(PROP), sum(CROP))
+  names(econ_s) <- c("Event", "Property Damages", "Crop Damages")
+    econ_s <- melt(econ_s, id.var="Event")
+        names(econ_s) <- c("Event", "Sum", "Dollar")
+```
+
+The mean effect of each Storm Event Type is plotted.
+
+```{r Mean, fig.width=10, fig.height=15}
+h<-ggplot(health_a, aes(x=Event, y=Number, fill=Mean))+
+  geom_bar(stat="identity")+
+  theme(legend.position="bottom")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("")+
+  scale_fill_brewer(palette="Set1")
+
+e<-ggplot(econ_a, aes(x=Event, y=Dollar, fill=Mean))+
+  geom_bar(stat="identity")+
+  theme(legend.position="bottom")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("")+
+  scale_fill_brewer(palette="Set2")
+
+grid.arrange(h, e, ncol = 1, top="Fig.1 - Mean of Effect for each Storm Event Type", bottom="Storm Event Type")
 
 ```
 
-The event type need to be tidied up to reduce the number of factors involved. From *the Storm Data Event Table*, section 2.1.1 of the *STORM DATA PREPARATION* documentation, there are 48 types of storm data events.
+The sum of effect of each Storm Event Type is also plotted.
 
-```{r}
+```{r Sum, fig.width=10, fig.height=15}
+h<-ggplot(health_s, aes(x=Event, y=Number, fill=Sum))+
+  geom_bar(stat="identity")+
+  theme(legend.position="bottom")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("")+
+  scale_fill_brewer(palette="Set1")
+
+e<-ggplot(econ_s, aes(x=Event, y=Dollar, fill=Sum))+
+  geom_bar(stat="identity")+
+  theme(legend.position="bottom")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("")+
+  scale_fill_brewer(palette="Set2")
+
+grid.arrange(h, e, ncol = 1, top="Fig.2 - Sum of Effect for each Storm Event Type", bottom="Storm Event Type")
 
 ```
 
+From *Fig.1*, looking at the mean figures, one may conclude that:
 
-# Results 
+1. Tsunami has been the most damaging to population health.
+2. Hurricane (Typhoon) has been the most damaging to the economy.
+3. The damage caused by the events quoted above are far more significant than the other events.
+
+However, looking at the mean figures could not address the actual damage, since it does not account for the frequency of occurrence of those events. A devastating but rare event may not cause as much damage that a petty but frequent event. Hence the true and overall damage can be found from the sum figures.
+
+From *Fig.2*, the pattern differes dramatically, reflecting effect of the rarity of events mentioned above. Overall:
+
+1. Tornado has caused the most damage to the population health.
+2. Floods has caused the most damage to the economy.
+
