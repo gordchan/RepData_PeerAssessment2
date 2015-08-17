@@ -11,7 +11,7 @@ This paper aim to find the type of severe weather event that had caused the grea
 
 # Data Processing
 
-The packages *dplyr*, *lubridate* and *reshape2* are used to process the data, while *knitr*, *ggplot2* and *gridExtra*  are used to facilitate data presentation.
+The packages *dplyr*, *lubridate* and *reshape2* are used to process the data, while *knitr*, *ggplot2*, *gridExtra* and *RColorBrewer* are used to facilitate data presentation.
 
 ```{r libraries, message=FALSE}
   library(dplyr)
@@ -21,6 +21,7 @@ The packages *dplyr*, *lubridate* and *reshape2* are used to process the data, w
   library(knitr)
   library(ggplot2)
     library(gridExtra)
+    library(RColorBrewer)
 ```
 
 Since the dataset is very large, only the relevant columns are loaded.
@@ -318,7 +319,42 @@ grid.arrange(h, e, ncol = 1, top="Fig.1 - Mean of Effect for each Storm Event Ty
 
 ```
 
-The sum of effect of each Storm Event Type is also plotted.
+The number of occuracnce for each Storm Events during the study period is also plotted.
+
+```{r Occurance, fig.width=10, fig.height=15}
+health_c <- count(health, StdName)
+econ_c <- count(econ, StdName)
+
+names(health_c) <- c("Event", "Occurance")
+names(econ_c) <- c("Event", "Occurance")
+
+colour_h <- brewer.pal(3, "Set1")
+    colour_h <- colour_h[2]
+
+colour_e <- brewer.pal(3, "Set2")
+    colour_e <- colour_e[1]
+
+h<-ggplot(health_c, aes(x=Event, y=Occurance))+
+  geom_histogram(stat = "identity", fill = colour_h)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.position="none")+
+  xlab("")+
+  annotate("text", x = 10, y = 2500, label = "Health-endangering Events")+
+  annotate("rect", xmin = 4, xmax = 16, ymin = 2300, ymax = 2700, alpha = .1)
+
+e<-ggplot(econ_c, aes(x=Event, y=Occurance, fill=colour_e))+
+  geom_histogram(stat = "identity", fill = colour_e)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.position="none")+
+  xlab("")+
+  annotate("text", x = 11, y = 90000, label = "Damage-causing Events")+
+  annotate("rect", xmin = 4, xmax = 18, ymin = 82000, ymax = 98000, alpha = .1)
+
+grid.arrange(h, e, ncol = 1, top="Fig.2 - Occurance of health-endangering/damage-causing Storm Events", bottom="Storm Event Type")
+```
+
+
+The sum of effect of each Storm Event Type is plotted.
 
 ```{r Sum, fig.width=10, fig.height=15}
 h<-ggplot(health_s, aes(x=Event, y=Number, fill=Sum))+
@@ -335,7 +371,7 @@ e<-ggplot(econ_s, aes(x=Event, y=Dollar, fill=Sum))+
   xlab("")+
   scale_fill_brewer(palette="Set2")
 
-grid.arrange(h, e, ncol = 1, top="Fig.2 - Sum of Effect for each Storm Event Type", bottom="Storm Event Type")
+grid.arrange(h, e, ncol = 1, top="Fig.3 - Sum of Effect for each Storm Event Type", bottom="Storm Event Type")
 
 ```
 
@@ -345,9 +381,9 @@ From *Fig.1*, looking at the mean figures, one may conclude that:
 2. Hurricane (Typhoon) has been the most damaging to the economy.
 3. The damage caused by the events quoted above are far more significant than the other events.
 
-However, looking at the mean figures could not address the actual damage, since it does not account for the frequency of occurrence of those events. A devastating but rare event may not cause as much damage that a petty but frequent event. Hence the true and overall damage can be found from the sum figures.
+However, looking at the mean figures could not address the actual damage, since it does not account for the frequency of occurrence of those events. A devastating but rare event may not cause as much damage that a petty but frequent event. Hence the true and overall damage should be found from the sum figures.
 
-From *Fig.2*, the pattern differes dramatically, reflecting effect of the rarity of events mentioned above. Overall:
+Indeed, if we look at the number of occurance from *Fig.2*, we could see that Tsunami and Hurricane (Typhoon) are very rare events. Hence, from *Fig.3*, the patterns of the sums differe dramatically, reflecting effect of the rarity of events mentioned above. Overall:
 
 1. Tornado has caused the most damage to the population health.
 2. Floods has caused the most damage to the economy.
